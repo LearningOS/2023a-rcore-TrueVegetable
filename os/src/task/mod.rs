@@ -17,7 +17,6 @@ mod task;
 use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
-use crate::syscall;
 use crate::timer::get_time;
 use lazy_static::*;
 use switch::__switch;
@@ -40,19 +39,21 @@ pub struct TaskManager {
     /// use inner value to get mutable access
     inner: UPSafeCell<TaskManagerInner>,
 }
-
+///Task information for lab 3
+#[derive(Copy, Clone)]
 pub struct TaskInfo {
     /// Task status in it's life cycle
-    status: TaskStatus,
+    pub status: TaskStatus,
     /// The numbers of syscall called by task
     pub syscall_times: [u32; MAX_SYSCALL_NUM],
     /// Total running time of task
-    time: usize,
+    pub time: usize,
 }
 /// Inner of Task Manager
 pub struct TaskManagerInner {
     /// task list
     tasks: [TaskControlBlock; MAX_APP_NUM],
+    /// task info for lab
     task_info: [TaskInfo; MAX_APP_NUM],
     /// id of current `Running` task
     current_task: usize,
@@ -96,13 +97,13 @@ impl TaskManager {
     fn run_first_task(&self) -> ! {
         let mut inner = self.inner.exclusive_access();
         let task0 = &mut inner.tasks[0];
+        task0.task_status = TaskStatus::Running;
+        let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
         let task_info = &mut inner.task_info[0];
-        if(task_info == TaskStatus::UnInit){
+        if task_info.status == TaskStatus::UnInit {
             task_info.status = TaskStatus::Running;
             task_info.time = get_time();
         }
-        task0.task_status = TaskStatus::Running;
-        let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
         // before this, we should drop local variables that must be dropped manually
@@ -145,7 +146,7 @@ impl TaskManager {
             let current = inner.current_task;
             
             let task_info = &mut inner.task_info[next];
-            if(task_info == TaskStatus::UnInit){
+            if task_info.status == TaskStatus::UnInit {
                 task_info.status = TaskStatus::Running;
                 task_info.time = get_time();
             }
@@ -163,16 +164,21 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+    /// get task info
     fn get_cur_taskinfo(&self) -> TaskInfo{
         let inner = self.inner.exclusive_access();
         let current = inner.current_task;
-        let task_info = &inner.task_info[current];
-        let ret = TaskInfo{
-            syscall_times: task_info.syscall_times.clone(),
-            ..task_info
-        };
+        let task_info = inner.task_info[current];
         drop(inner);
-        ret
+        task_info
+    }
+    /// update task info to keep track of syscalls
+    fn add_cur_syscall_times(&self, id:usize){
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let task_info = &mut inner.task_info[current].syscall_times;
+        task_info[id] += 1;
+        drop(inner);
     }
 }
 
@@ -208,12 +214,12 @@ pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
 }
-
+/// public function for getting taskinfo
 pub fn get_cur_taskinfo() -> TaskInfo {
-    TaskInfo ret = TASK_MANAGER.get_cur_taskinfo();
+    let ret:TaskInfo = TASK_MANAGER.get_cur_taskinfo();
     ret
 }
-
-pub fn add_syscall_times(id: u32){
-
+/// public function for updating syscall times
+pub fn add_cur_syscall_times(id: usize){
+    TASK_MANAGER.add_cur_syscall_times(id);
 }
