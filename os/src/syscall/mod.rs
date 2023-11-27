@@ -10,7 +10,6 @@
 //! `sys_` then the name of the syscall. You can find functions like this in
 //! submodules, and you should also implement syscalls this way.
 use crate::task::add_cur_syscall_times;
-use crate::task::TaskInfo;
 /// write syscall
 const SYSCALL_WRITE: usize = 64;
 /// exit syscall

@@ -14,16 +14,26 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
+use crate::config::MAX_APP_NUM;
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
-use crate::timer::get_time;
+use crate::timer::get_time_ms;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
 
+
+const SYSCALL_WRITE: usize = 64;
+/// exit syscall
+const SYSCALL_EXIT: usize = 93;
+/// yield syscall
+const SYSCALL_YIELD: usize = 124;
+/// gettime syscall
+const SYSCALL_GET_TIME: usize = 169;
+/// taskinfo syscall
+const SYSCALL_TASK_INFO: usize = 410;
 /// The task manager, where all the tasks are managed.
 ///
 /// Functions implemented on `TaskManager` deals with all task state transitions
@@ -41,11 +51,11 @@ pub struct TaskManager {
 }
 ///Task information for lab 3
 #[derive(Copy, Clone)]
-pub struct TaskInfo {
+pub struct TaskInfo2 {
     /// Task status in it's life cycle
     pub status: TaskStatus,
     /// The numbers of syscall called by task
-    pub syscall_times: [u32; MAX_SYSCALL_NUM],
+    pub syscall_times: [u32; 5],
     /// Total running time of task
     pub time: usize,
 }
@@ -54,7 +64,8 @@ pub struct TaskManagerInner {
     /// task list
     tasks: [TaskControlBlock; MAX_APP_NUM],
     /// task info for lab
-    task_info: [TaskInfo; MAX_APP_NUM],
+    // task_info: TaskInfo,
+    task_info: [TaskInfo2; MAX_APP_NUM],
     /// id of current `Running` task
     current_task: usize,
 }
@@ -67,11 +78,16 @@ lazy_static! {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
         }; MAX_APP_NUM];
-        let task_info = [TaskInfo {
-            status: TaskStatus::UnInit,
-            syscall_times: [0u32; MAX_SYSCALL_NUM],
+        let task_info = [TaskInfo2 {
+            status: TaskStatus::Ready,
+            syscall_times: [0u32; 5],
             time: 0 as usize,
         }; MAX_APP_NUM];
+        /*let task_info = TaskInfo {
+            status: TaskStatus::Ready,
+            syscall_times: [0u32; MAX_SYSCALL_NUM],
+            time: 0 as usize,
+        };*/
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
             task.task_status = TaskStatus::Ready;
@@ -100,9 +116,9 @@ impl TaskManager {
         task0.task_status = TaskStatus::Running;
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
         let task_info = &mut inner.task_info[0];
-        if task_info.status == TaskStatus::UnInit {
+        if task_info.status == TaskStatus::Ready {
             task_info.status = TaskStatus::Running;
-            task_info.time = get_time();
+            task_info.time = get_time_ms();
         }
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -146,9 +162,9 @@ impl TaskManager {
             let current = inner.current_task;
             
             let task_info = &mut inner.task_info[next];
-            if task_info.status == TaskStatus::UnInit {
+            if task_info.status == TaskStatus::Ready {
                 task_info.status = TaskStatus::Running;
-                task_info.time = get_time();
+                task_info.time = get_time_ms();
             }
             inner.tasks[next].task_status = TaskStatus::Running;
             inner.current_task = next;
@@ -165,7 +181,7 @@ impl TaskManager {
         }
     }
     /// get task info
-    fn get_cur_taskinfo(&self) -> TaskInfo{
+    fn get_cur_taskinfo(&self) -> TaskInfo2{
         let inner = self.inner.exclusive_access();
         let current = inner.current_task;
         let task_info = inner.task_info[current];
@@ -177,7 +193,14 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
         let task_info = &mut inner.task_info[current].syscall_times;
-        task_info[id] += 1;
+        match id {
+            SYSCALL_WRITE => task_info[0] += 1,
+            SYSCALL_EXIT => task_info[1] += 1,
+            SYSCALL_YIELD => task_info[2] += 1,
+            SYSCALL_GET_TIME => task_info[3] += 1,
+            SYSCALL_TASK_INFO => task_info[4] += 1,
+            _ => panic!("Unsupported syscall_id: {}", id),
+        };
         drop(inner);
     }
 }
@@ -215,8 +238,8 @@ pub fn exit_current_and_run_next() {
     run_next_task();
 }
 /// public function for getting taskinfo
-pub fn get_cur_taskinfo() -> TaskInfo {
-    let ret:TaskInfo = TASK_MANAGER.get_cur_taskinfo();
+pub fn get_cur_taskinfo() -> TaskInfo2 {
+    let ret:TaskInfo2 = TASK_MANAGER.get_cur_taskinfo();
     ret
 }
 /// public function for updating syscall times

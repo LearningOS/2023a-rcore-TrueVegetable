@@ -1,7 +1,9 @@
 //! Process management syscalls
 use crate::{
-    task::{exit_current_and_run_next, suspend_current_and_run_next, TaskInfo, get_cur_taskinfo},
-    timer::{get_time_us, get_time},
+    task::{exit_current_and_run_next, suspend_current_and_run_next, TaskInfo2, TaskStatus},
+    task::get_cur_taskinfo,
+    timer::get_time_us,
+    timer::get_time_ms, syscall::{SYSCALL_WRITE, SYSCALL_EXIT, SYSCALL_YIELD, SYSCALL_GET_TIME, SYSCALL_TASK_INFO}, config::MAX_SYSCALL_NUM,
 };
 
 #[repr(C)]
@@ -10,7 +12,15 @@ pub struct TimeVal {
     pub sec: usize,
     pub usec: usize,
 }
-
+#[derive(Copy, Clone)]
+pub struct TaskInfo {
+    /// Task status in it's life cycle
+    pub status: TaskStatus,
+    /// The numbers of syscall called by task
+    pub syscall_times: [u32; MAX_SYSCALL_NUM],
+    /// Total running time of task
+    pub time: usize,
+}
 /// Task information
 
 /// task exits and submit an exit code
@@ -43,13 +53,21 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 /// YOUR JOB: Finish sys_task_info to pass testcases
 pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
     trace!("kernel: sys_task_info");
-    let tmp: TaskInfo = get_cur_taskinfo();
+    let tmp: TaskInfo2 = get_cur_taskinfo();
+    let mut tmp1 = TaskInfo{
+        time: get_time_ms() - tmp.time,
+        syscall_times: [0u32; MAX_SYSCALL_NUM],
+        status: tmp.status,
+    };
+    tmp1.syscall_times[SYSCALL_WRITE] = tmp.syscall_times[0];
+    tmp1.syscall_times[SYSCALL_EXIT] = tmp.syscall_times[1];
+    tmp1.syscall_times[SYSCALL_YIELD] = tmp.syscall_times[2];
+    tmp1.syscall_times[SYSCALL_GET_TIME] = tmp.syscall_times[3];
+    tmp1.syscall_times[SYSCALL_TASK_INFO] = tmp.syscall_times[4];
+    assert!(tmp1.syscall_times[SYSCALL_TASK_INFO] > 0);
     unsafe{
-        *ti = TaskInfo{
-            syscall_times: tmp.syscall_times.clone(),
-            time: get_time() - tmp.time,
-            status: tmp.status,
-        }
+       *ti = tmp1;
+       assert!((*ti).syscall_times[SYSCALL_TASK_INFO] > 0);
     }
     0
 }
