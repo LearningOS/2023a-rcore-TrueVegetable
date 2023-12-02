@@ -14,8 +14,11 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
+use crate::syscall;
+use crate::timer::get_time_ms;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
 use lazy_static::*;
@@ -23,6 +26,22 @@ use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
+
+const SYSCALL_WRITE: usize = 64;
+/// exit syscall
+const SYSCALL_EXIT: usize = 93;
+/// yield syscall
+const SYSCALL_YIELD: usize = 124;
+/// gettime syscall
+const SYSCALL_GET_TIME: usize = 169;
+/// sbrk syscall
+const SYSCALL_SBRK: usize = 214;
+/// munmap syscall
+const SYSCALL_MUNMAP: usize = 215;
+/// mmap syscall
+const SYSCALL_MMAP: usize = 222;
+/// taskinfo syscall
+const SYSCALL_TASK_INFO: usize = 410;
 
 /// The task manager, where all the tasks are managed.
 ///
@@ -39,11 +58,16 @@ pub struct TaskManager {
     /// use inner value to get mutable access
     inner: UPSafeCell<TaskManagerInner>,
 }
-
+#[derive(Clone, Copy)]
+pub struct TaskInfo2{
+    pub syscall_times: [u32; 8],
+    pub start_time: usize,
+}
 /// The task manager inner in 'UPSafeCell'
 struct TaskManagerInner {
     /// task list
     tasks: Vec<TaskControlBlock>,
+    task_info: Vec<TaskInfo2>,
     /// id of current `Running` task
     current_task: usize,
 }
@@ -55,14 +79,22 @@ lazy_static! {
         let num_app = get_num_app();
         println!("num_app = {}", num_app);
         let mut tasks: Vec<TaskControlBlock> = Vec::new();
+        
+        let task_info_elem: TaskInfo2 = TaskInfo2{
+            syscall_times: [0u32; 8],
+            start_time: 0usize,
+        };
+        let mut task_info: Vec<TaskInfo2> = Vec::new();
         for i in 0..num_app {
             tasks.push(TaskControlBlock::new(get_app_data(i), i));
+            task_info.push(task_info_elem.clone());
         }
         TaskManager {
             num_app,
             inner: unsafe {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
+                    task_info,
                     current_task: 0,
                 })
             },
@@ -80,6 +112,8 @@ impl TaskManager {
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
+        let cur_task_info = &mut inner.task_info[0];
+        cur_task_info.start_time = get_time_ms();
         drop(inner);
         let mut _unused = TaskContext::zero_init();
         // before this, we should drop local variables that must be dropped manually
@@ -141,6 +175,10 @@ impl TaskManager {
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
             inner.current_task = next;
+            let cur_task_info = &mut inner.task_info[next];
+            if(cur_task_info.start_time == 0){
+                cur_task_info.start_time = get_time_ms();
+            }
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
             drop(inner);
@@ -152,6 +190,31 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+    fn get_cur_task_info(&self) -> TaskInfo2 {
+        let inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        let ret = inner.task_info[cur].clone();
+        drop(inner);
+        ret
+    }
+    fn add_cur_task_info(&self, id:usize){
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        let index = match id {
+            SYSCALL_WRITE => 0,
+            SYSCALL_EXIT => 1,
+            SYSCALL_YIELD => 2,
+            SYSCALL_GET_TIME => 3,
+            SYSCALL_SBRK => 4,
+            SYSCALL_MUNMAP => 5,
+            SYSCALL_MMAP => 6,
+            SYSCALL_TASK_INFO => 7,
+            _ => panic!("invalid id"),
+        };
+        let cur_task_info = &mut inner.task_info[cur];
+        cur_task_info.syscall_times[index] += 1;
+        drop(inner);
     }
 }
 
@@ -201,4 +264,12 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+pub fn get_cur_task_info() -> TaskInfo2 {
+    TASK_MANAGER.get_cur_task_info()
+}
+
+pub fn add_cur_task_info(id: usize){
+    TASK_MANAGER.add_cur_task_info(id);
 }
