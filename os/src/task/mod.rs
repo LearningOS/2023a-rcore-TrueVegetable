@@ -1,18 +1,3 @@
-//! Task management implementation
-//!
-//! Everything about task management, like starting and switching tasks is
-//! implemented here.
-//!
-//! A single global instance of [`TaskManager`] called `TASK_MANAGER` controls
-//! all the tasks in the whole operating system.
-//!
-//! A single global instance of [`Processor`] called `PROCESSOR` monitors running
-//! task(s) for each core.
-//!
-//! A single global instance of `PID_ALLOCATOR` allocates pid for user apps.
-//!
-//! Be careful when you see `__switch` ASM function in `switch.S`. Control flow around this function
-//! might not be what you expect.
 mod context;
 mod id;
 mod manager;

@@ -8,7 +8,7 @@ FS_IMG := ../user/target/$(TARGET)/$(MODE)/fs.img
 APPS := ../user/src/bin/*
 
 # BOARD
-BOARD := qemu
+BOARD ?= qemu
 SBI ?= rustsbi
 BOOTLOADER := ../bootloader/$(SBI)-$(BOARD).bin
 
@@ -56,7 +56,7 @@ kernel:
 	@cargo build --release
 
 clean:
-	@cargo clean
+	cargo clean
 
 disasm: kernel
 	@$(OBJDUMP) $(DISASM) $(KERNEL_ELF) | less
