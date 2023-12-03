@@ -8,10 +8,18 @@ mod task;
 
 use crate::loader::get_app_data_by_name;
 use alloc::sync::Arc;
+
 use lazy_static::*;
 pub use manager::{fetch_task, TaskManager};
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
+
+use crate::loader::{get_app_data, get_num_app};
+use crate::mm::MemorySet;
+use crate::sync::UPSafeCell;
+use crate::timer::get_time_us;
+use crate::trap::TrapContext;
+use alloc::vec::Vec;
 
 pub use context::TaskContext;
 pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
@@ -99,4 +107,8 @@ lazy_static! {
 ///Add init process to the manager
 pub fn add_initproc() {
     add_task(INITPROC.clone());
+}
+
+pub fn get_cur_mem_set() -> &'static mut MemorySet{
+    TASK_MANAGER.get_mem_set()
 }
