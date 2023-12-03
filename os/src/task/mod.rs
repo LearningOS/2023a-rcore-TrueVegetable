@@ -14,11 +14,10 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::MemorySet;
 use crate::sync::UPSafeCell;
-use crate::syscall;
-use crate::timer::get_time_ms;
+use crate::timer::get_time_us;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
 use lazy_static::*;
@@ -113,7 +112,7 @@ impl TaskManager {
         next_task.task_status = TaskStatus::Running;
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
         let cur_task_info = &mut inner.task_info[0];
-        cur_task_info.start_time = get_time_ms();
+        cur_task_info.start_time = get_time_us() / 1000;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
         // before this, we should drop local variables that must be dropped manually
@@ -176,9 +175,12 @@ impl TaskManager {
             inner.tasks[next].task_status = TaskStatus::Running;
             inner.current_task = next;
             let cur_task_info = &mut inner.task_info[next];
-            if(cur_task_info.start_time == 0){
-                cur_task_info.start_time = get_time_ms();
+            if cur_task_info.start_time == 0usize{
+                cur_task_info.start_time = get_time_us() / 1000;
+                //println!("task start time {}", cur_task_info.start_time);
             }
+            
+            //assert!(cur_task_info.start_time > 0);
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
             drop(inner);
@@ -215,6 +217,11 @@ impl TaskManager {
         let cur_task_info = &mut inner.task_info[cur];
         cur_task_info.syscall_times[index] += 1;
         drop(inner);
+    }
+    fn get_mem_set(&self) -> &mut MemorySet{
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].get_mem_set()
     }
 }
 
@@ -272,4 +279,8 @@ pub fn get_cur_task_info() -> TaskInfo2 {
 
 pub fn add_cur_task_info(id: usize){
     TASK_MANAGER.add_cur_task_info(id);
+}
+
+pub fn get_cur_mem_set() -> &'static mut MemorySet{
+    TASK_MANAGER.get_mem_set()
 }

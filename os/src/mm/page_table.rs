@@ -1,6 +1,6 @@
 //! Implementation of [`PageTableEntry`] and [`PageTable`].
 
-use super::{frame_alloc, FrameTracker, PhysPageNum, StepByOne, VirtAddr, VirtPageNum, PhysAddr};
+use super::{frame_alloc, FrameTracker, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
@@ -46,6 +46,12 @@ impl PageTableEntry {
     pub fn flags(&self) -> PTEFlags {
         PTEFlags::from_bits(self.bits as u8).unwrap()
     }
+    pub fn set_prot(&mut self, prot:usize){
+        self.bits |= prot << 1;
+    }
+    pub fn set_user(&mut self){
+        self.bits |= 1 << 4;
+    }
     /// The page pointered by page table entry is valid?
     pub fn is_valid(&self) -> bool {
         (self.flags() & PTEFlags::V) != PTEFlags::empty()
@@ -66,8 +72,8 @@ impl PageTableEntry {
 
 /// page table structure
 pub struct PageTable {
-    root_ppn: PhysPageNum,
-    frames: Vec<FrameTracker>,
+    pub root_ppn: PhysPageNum,
+    pub frames: Vec<FrameTracker>,
 }
 
 /// Assume that it won't oom when creating/mapping.
@@ -87,8 +93,31 @@ impl PageTable {
             frames: Vec::new(),
         }
     }
+    
+    pub fn find_pte_create_map(&mut self, vpn: VirtPageNum) -> Option<&mut PageTableEntry>{
+        let idxs = vpn.indexes();
+        let mut ppn = self.root_ppn;
+        let mut result: Option<&mut PageTableEntry> = None;
+        for (i, idx) in idxs.iter().enumerate() {
+            let pte = &mut ppn.get_pte_array()[*idx];
+            if !pte.is_valid() {
+                let frame = frame_alloc().unwrap();
+                println!("mapped {} in pte create", usize::from(frame.ppn));
+                *pte = PageTableEntry::new(frame.ppn, PTEFlags::V);
+                self.frames.push(frame);
+            }
+            if i == 2 {
+                result = Some(pte);
+                break;
+            }
+            ppn = pte.ppn();
+        }
+        println!("return map {} in pte create", result.as_ref().unwrap().bits);
+        result
+    }
     /// Find PageTableEntry by VirtPageNum, create a frame for a 4KB page table if not exist
-    pub fn find_pte_create(&mut self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
+    /// 
+    pub fn find_pte_create(&mut self, vpn: VirtPageNum) -> Option<&mut PageTableEntry>{
         let idxs = vpn.indexes();
         let mut ppn = self.root_ppn;
         let mut result: Option<&mut PageTableEntry> = None;
@@ -100,11 +129,13 @@ impl PageTable {
             }
             if !pte.is_valid() {
                 let frame = frame_alloc().unwrap();
+                //println!("mapped {} in pte create", usize::from(frame.ppn));
                 *pte = PageTableEntry::new(frame.ppn, PTEFlags::V);
                 self.frames.push(frame);
             }
             ppn = pte.ppn();
         }
+        //println!("return map {} in pte create", result.as_ref().unwrap().bits);
         result
     }
     /// Find PageTableEntry by VirtPageNum
@@ -114,12 +145,12 @@ impl PageTable {
         let mut result: Option<&mut PageTableEntry> = None;
         for (i, idx) in idxs.iter().enumerate() {
             let pte = &mut ppn.get_pte_array()[*idx];
+            if !pte.is_valid() {
+                return None;
+            }
             if i == 2 {
                 result = Some(pte);
                 break;
-            }
-            if !pte.is_valid() {
-                return None;
             }
             ppn = pte.ppn();
         }
