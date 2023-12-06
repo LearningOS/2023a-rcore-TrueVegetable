@@ -58,7 +58,7 @@ use fs::*;
 use process::*;
 
 use crate::fs::Stat;
-use crate::task::add_cur_task_info;
+use crate::task::processor::add_cur_task_info;
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 4]) -> isize {
     add_cur_task_info(syscall_id);

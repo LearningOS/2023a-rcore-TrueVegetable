@@ -11,6 +11,11 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefMut;
 
+use alloc::collections::BTreeMap;
+
+
+
+use crate::timer::get_time_us;
 /// Task control block structure
 ///
 /// Directly save the contents that will not change during running
@@ -24,6 +29,24 @@ pub struct TaskControlBlock {
 
     /// Mutable
     inner: UPSafeCell<TaskControlBlockInner>,
+}
+#[derive(Clone)]
+pub struct TaskInfo2{
+    pub start_time: usize,
+    pub syscall_times: BTreeMap<usize, u32>,
+}
+
+impl TaskInfo2{
+    pub fn get_mut(&mut self) -> &'static mut Self{
+        unsafe{
+            (self as *mut Self).as_mut().unwrap()
+        }
+    }
+    pub fn get_ref(&mut self) -> &'static Self{
+        unsafe{
+            (self as *mut Self).as_ref().unwrap()
+        }
+    }
 }
 
 impl TaskControlBlock {
@@ -71,14 +94,14 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// Task info for ch3
+    pub task_info: TaskInfo2,
 }
 
 impl TaskControlBlockInner {
     pub fn get_trap_cx(&self) -> &'static mut TrapContext {
         self.trap_cx_ppn.get_mut()
-    }
-    pub fn get_mem_set(&mut self) -> &'static mut MemorySet {
-        self.memory_set.get_mut()
     }
     /// get the user token
     pub fn get_user_token(&self) -> usize {
@@ -115,6 +138,10 @@ impl TaskControlBlock {
         let pid_handle = pid_alloc();
         let kernel_stack = kstack_alloc();
         let kernel_stack_top = kernel_stack.get_top();
+        let task_info = TaskInfo2{
+            start_time: 0usize,
+            syscall_times: BTreeMap::new(),
+        };
         // push a task context which goes to trap_return to the top of kernel stack
         let task_control_block = Self {
             pid: pid_handle,
@@ -139,6 +166,7 @@ impl TaskControlBlock {
                     ],
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    task_info,
                 })
             },
         };
@@ -204,6 +232,7 @@ impl TaskControlBlock {
                 new_fd_table.push(None);
             }
         }
+        let task_info = parent_inner.task_info.clone();
         let task_control_block = Arc::new(TaskControlBlock {
             pid: pid_handle,
             kernel_stack,
@@ -220,6 +249,7 @@ impl TaskControlBlock {
                     fd_table: new_fd_table,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    task_info,
                 })
             },
         });
@@ -234,7 +264,60 @@ impl TaskControlBlock {
         // **** release child PCB
         // ---- release parent PCB
     }
-
+    pub fn spawn(self: &Arc<Self>, elf_data: &[u8]) -> Arc<Self>{
+        let mut parent_inner = self.inner_exclusive_access();
+        // copy user space(include trap context)
+        
+        let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
+        let trap_cx_ppn = memory_set
+            .translate(VirtAddr::from(TRAP_CONTEXT_BASE).into())
+            .unwrap()
+            .ppn();
+        // alloc a pid and a kernel stack in kernel space
+        let pid_handle = pid_alloc();
+        let kernel_stack = kstack_alloc();
+        let kernel_stack_top = kernel_stack.get_top();
+        let new_fd_table: Vec<Option<Arc<dyn File + Send + Sync>>> = Vec::new();
+        let task_info = TaskInfo2 { start_time: 0usize, syscall_times: BTreeMap::new() };
+        let task_control_block = Arc::new(TaskControlBlock {
+            pid: pid_handle,
+            kernel_stack,
+            inner: unsafe {
+                UPSafeCell::new(TaskControlBlockInner {
+                    trap_cx_ppn,
+                    base_size: user_sp,
+                    task_cx: TaskContext::goto_trap_return(kernel_stack_top),
+                    task_status: TaskStatus::Ready,
+                    memory_set,
+                    parent: Some(Arc::downgrade(self)),
+                    children: Vec::new(),
+                    exit_code: 0,
+                    fd_table: new_fd_table,
+                    heap_bottom: user_sp,
+                    program_brk: user_sp,
+                    task_info,
+                })
+            },
+        });
+        // add child
+        
+        parent_inner.children.push(task_control_block.clone());
+        // modify kernel_sp in trap_cx
+        // **** access child PCB exclusively
+        
+        let mut inner = task_control_block.inner_exclusive_access();
+        let trap_cx = inner.get_trap_cx();
+        *trap_cx = TrapContext::app_init_context(
+            entry_point,
+            user_sp,
+            KERNEL_SPACE.exclusive_access().token(),
+            task_control_block.kernel_stack.get_top(),
+            trap_handler as usize,
+        );
+        // return
+        drop(inner);
+        task_control_block
+    }
     /// get pid of process
     pub fn getpid(&self) -> usize {
         self.pid.0
@@ -264,6 +347,30 @@ impl TaskControlBlock {
         } else {
             None
         }
+    }
+    pub fn add_cur_task_info(&self, syscall_id:usize){
+        let mut inner = self.inner_exclusive_access();
+        if let Some(syscall_time) = inner.task_info.syscall_times.get(&syscall_id) {
+            let syscall_time_val = *syscall_time;
+            inner.task_info.syscall_times.insert(syscall_id, syscall_time_val + 1);
+        }
+        else {
+            inner.task_info.syscall_times.insert(syscall_id, 1);
+        }
+    }
+    pub fn update_time(&self){
+        let mut inner = self.inner_exclusive_access();
+        if inner.task_info.start_time == 0 {
+            inner.task_info.start_time = get_time_us() / 1000;
+        }
+    }
+    pub fn get_mem_set(&self) -> &'static mut MemorySet{
+        let mut inner = self.inner_exclusive_access();
+        inner.memory_set.get_mut()
+    }
+    pub fn get_task_info(&self) -> &'static mut TaskInfo2{
+        let mut inner = self.inner_exclusive_access();
+        inner.task_info.get_mut()
     }
 }
 
