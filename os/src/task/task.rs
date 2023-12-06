@@ -11,7 +11,9 @@ use core::cell::RefMut;
 
 use alloc::collections::BTreeMap;
 
+const DEFAULT_PRIORITY: usize = 16;
 
+const BIG_STRIDE: usize = 214748;
 
 use crate::timer::get_time_us;
 /// Task control block structure
@@ -94,6 +96,12 @@ pub struct TaskControlBlockInner {
 
     /// Task info for ch3
     pub task_info: TaskInfo2,
+    
+    /// priority of task
+    pub priority: usize,
+
+    /// current stride of task
+    pub stride: usize,
 }
 
 impl TaskControlBlockInner {
@@ -149,6 +157,8 @@ impl TaskControlBlock {
                     heap_bottom: user_sp,
                     program_brk: user_sp,
                     task_info,
+                    priority: DEFAULT_PRIORITY,
+                    stride: 0,
                 })
             },
         };
@@ -224,6 +234,8 @@ impl TaskControlBlock {
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
                     task_info,
+                    priority: parent_inner.priority,
+                    stride: parent_inner.stride,
                 })
             },
         });
@@ -268,6 +280,8 @@ impl TaskControlBlock {
                     heap_bottom: user_sp,
                     program_brk: user_sp,
                     task_info,
+                    priority: DEFAULT_PRIORITY,
+                    stride: 0,
                 })
             },
         });
@@ -294,7 +308,10 @@ impl TaskControlBlock {
     pub fn getpid(&self) -> usize {
         self.pid.0
     }
-
+    pub fn set_priority(&self, priority: usize){
+        let mut inner = self.inner_exclusive_access();
+        inner.priority = priority;
+    }
     /// change the location of the program break. return None if failed.
     pub fn change_program_brk(&self, size: i32) -> Option<usize> {
         let mut inner = self.inner_exclusive_access();
@@ -343,6 +360,15 @@ impl TaskControlBlock {
     pub fn get_task_info(&self) -> &'static mut TaskInfo2{
         let mut inner = self.inner_exclusive_access();
         inner.task_info.get_mut()
+    }
+    pub fn get_stride(&self) -> usize{
+        let mut inner = self.inner_exclusive_access();
+        let ret = inner.stride;
+        ret
+    }
+    pub fn add_stride(&self){
+        let mut inner = self.inner_exclusive_access();
+        inner.stride += BIG_STRIDE / inner.priority;
     }
 }
 

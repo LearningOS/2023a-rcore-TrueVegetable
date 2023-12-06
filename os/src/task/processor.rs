@@ -66,6 +66,7 @@ pub fn run_tasks() {
             task_inner.task_status = TaskStatus::Running;
             // release coming task_inner manually
             drop(task_inner);
+            task.update_time();
             // release coming task TCB manually
             processor.current = Some(task);
             // release processor manually
