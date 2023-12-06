@@ -1,10 +1,10 @@
-mod context;
-mod id;
-mod manager;
-mod processor;
-mod switch;
+pub mod context;
+pub mod id;
+pub mod manager;
+pub mod processor;
+pub mod switch;
 #[allow(clippy::module_inception)]
-mod task;
+pub mod task;
 
 use crate::loader::get_app_data_by_name;
 use alloc::sync::Arc;
@@ -107,8 +107,4 @@ lazy_static! {
 ///Add init process to the manager
 pub fn add_initproc() {
     add_task(INITPROC.clone());
-}
-
-pub fn get_cur_mem_set() -> &'static mut MemorySet{
-    TASK_MANAGER.get_mem_set()
 }

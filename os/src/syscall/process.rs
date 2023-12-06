@@ -1,5 +1,5 @@
 //! Process management syscalls
-use alloc::sync::Arc;
+use alloc::{sync::Arc, task};
 
 use crate::{
     config::MAX_SYSCALL_NUM,
@@ -8,7 +8,7 @@ use crate::{
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
         suspend_current_and_run_next, TaskStatus,
-        change_program_brk, TaskInfo2, get_cur_task_info, get_cur_mem_set
+        task::TaskInfo2, processor::get_cur_task_info, processor::get_cur_mem_set
     },  timer::get_time_us, mm::{PhysAddr, VirtAddr, VirtPageNum}, mm::PageTable
 };
 
@@ -143,76 +143,6 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
     // ---- release current PCB automatically
 }
 
-pub fn sys_getpid() -> isize {
-    trace!("kernel: sys_getpid pid:{}", current_task().unwrap().pid.0);
-    current_task().unwrap().pid.0 as isize
-}
-
-pub fn sys_fork() -> isize {
-    trace!("kernel:pid[{}] sys_fork", current_task().unwrap().pid.0);
-    let current_task = current_task().unwrap();
-    let new_task = current_task.fork();
-    let new_pid = new_task.pid.0;
-    // modify trap context of new_task, because it returns immediately after switching
-    let trap_cx = new_task.inner_exclusive_access().get_trap_cx();
-    // we do not have to move to next instruction since we have done it before
-    // for child process, fork returns 0
-    trap_cx.x[10] = 0;
-    // add new task to scheduler
-    add_task(new_task);
-    new_pid as isize
-}
-
-pub fn sys_exec(path: *const u8) -> isize {
-    trace!("kernel:pid[{}] sys_exec", current_task().unwrap().pid.0);
-    let token = current_user_token();
-    let path = translated_str(token, path);
-    if let Some(data) = get_app_data_by_name(path.as_str()) {
-        let task = current_task().unwrap();
-        task.exec(data);
-        0
-    } else {
-        -1
-    }
-}
-
-/// If there is not a child process whose pid is same as given, return -1.
-/// Else if there is a child process but it is still running, return -2.
-pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
-    trace!("kernel::pid[{}] sys_waitpid [{}]", current_task().unwrap().pid.0, pid);
-    let task = current_task().unwrap();
-    // find a child process
-
-    // ---- access current PCB exclusively
-    let mut inner = task.inner_exclusive_access();
-    if !inner
-        .children
-        .iter()
-        .any(|p| pid == -1 || pid as usize == p.getpid())
-    {
-        return -1;
-        // ---- release current PCB
-    }
-    let pair = inner.children.iter().enumerate().find(|(_, p)| {
-        // ++++ temporarily access child PCB exclusively
-        p.inner_exclusive_access().is_zombie() && (pid == -1 || pid as usize == p.getpid())
-        // ++++ release child PCB
-    });
-    if let Some((idx, _)) = pair {
-        let child = inner.children.remove(idx);
-        // confirm that child will be deallocated after being removed from children list
-        assert_eq!(Arc::strong_count(&child), 1);
-        let found_pid = child.getpid();
-        // ++++ temporarily access child PCB exclusively
-        let exit_code = child.inner_exclusive_access().exit_code;
-        // ++++ release child PCB
-        *translated_refmut(inner.memory_set.token(), exit_code_ptr) = exit_code;
-        found_pid as isize
-    } else {
-        -2
-    }
-    // ---- release current PCB automatically
-}
 
 /// ch3 implementation does not work because of vm
 /// get paddr from vaddr ti using user page table
@@ -261,17 +191,12 @@ pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
         while i < 500 {
             let syscall_times_paddr = virt_addr_to_phys_addr(&cur_page_table, VirtAddr::from(usize::from(syscall_times_vaddr) + i * 4)).0;
             let cur_syscall_times_paddr = syscall_times_paddr as *mut u32;
-            match i {
-                SYSCALL_WRITE => *cur_syscall_times_paddr = task_info.syscall_times[0],
-                SYSCALL_EXIT => *cur_syscall_times_paddr = task_info.syscall_times[1],
-                SYSCALL_YIELD => *cur_syscall_times_paddr = task_info.syscall_times[2],
-                SYSCALL_GET_TIME => *cur_syscall_times_paddr = task_info.syscall_times[3],
-                SYSCALL_SBRK => *cur_syscall_times_paddr = task_info.syscall_times[4],
-                SYSCALL_MUNMAP => *cur_syscall_times_paddr = task_info.syscall_times[5],
-                SYSCALL_MMAP => *cur_syscall_times_paddr = task_info.syscall_times[6],
-                SYSCALL_TASK_INFO => *cur_syscall_times_paddr = task_info.syscall_times[7],
-                _ => *cur_syscall_times_paddr = 0,
-            };
+            if let Some(cur_syscall_times) = task_info.syscall_times.get(&i){
+                *cur_syscall_times_paddr = *cur_syscall_times;
+            }
+            else {
+                *cur_syscall_times_paddr = 0;
+            }
             i += 1;
         }
         let run_time = get_time_us() / 1000 - task_info.start_time;
@@ -342,12 +267,22 @@ pub fn sys_sbrk(size: i32) -> isize {
 
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
-pub fn sys_spawn(_path: *const u8) -> isize {
+pub fn sys_spawn(path: *const u8) -> isize {
     trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_spawn",
         current_task().unwrap().pid.0
     );
-    -1
+    let token = current_user_token();
+    let path = translated_str(token, path);
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
+        let cur_task = current_task().unwrap();
+        let new_task = cur_task.spawn(data);
+        let new_pid = new_task.pid.0;
+        add_task(new_task);
+        new_pid as isize
+    } else {
+        -1
+    }
 }
 
 // YOUR JOB: Set task priority.

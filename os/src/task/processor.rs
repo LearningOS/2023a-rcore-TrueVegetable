@@ -5,9 +5,12 @@
 //! and the replacement and transfer of control flow of different applications are executed.
 
 use super::__switch;
+use super::task::TaskInfo2;
 use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
+use crate::mm::MemorySet;
 use crate::sync::UPSafeCell;
+use crate::syscall;
 use crate::trap::TrapContext;
 use alloc::sync::Arc;
 use lazy_static::*;
@@ -108,4 +111,16 @@ pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
     unsafe {
         __switch(switched_task_cx_ptr, idle_task_cx_ptr);
     }
+}
+
+pub fn get_cur_task_info() -> &'static TaskInfo2{
+    current_task().unwrap().get_task_info()
+}
+
+pub fn get_cur_mem_set() -> &'static mut MemorySet{
+    current_task().unwrap().get_mem_set()
+}
+
+pub fn add_cur_task_info(syscall_id: usize){
+    current_task().unwrap().add_cur_task_info(syscall_id);
 }
