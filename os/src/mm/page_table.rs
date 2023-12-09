@@ -102,7 +102,7 @@ impl PageTable {
             let pte = &mut ppn.get_pte_array()[*idx];
             if !pte.is_valid() {
                 let frame = frame_alloc().unwrap();
-                println!("mapped {} in pte create", usize::from(frame.ppn));
+                // println!("mapped {} in pte create", usize::from(frame.ppn));
                 *pte = PageTableEntry::new(frame.ppn, PTEFlags::V);
                 self.frames.push(frame);
             }
@@ -112,7 +112,7 @@ impl PageTable {
             }
             ppn = pte.ppn();
         }
-        println!("return map {} in pte create", result.as_ref().unwrap().bits);
+        // println!("return map {} in pte create", result.as_ref().unwrap().bits);
         result
     }
     /// Find PageTableEntry by VirtPageNum, create a frame for a 4KB page table if not exist

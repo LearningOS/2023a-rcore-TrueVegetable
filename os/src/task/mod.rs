@@ -16,14 +16,12 @@ pub use manager::{fetch_task, TaskManager};
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
-use crate::loader::{get_app_data, get_num_app};
 use crate::mm::MemorySet;
 use crate::sync::UPSafeCell;
 use crate::timer::get_time_us;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
 
-pub use context::TaskContext;
 pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 pub use manager::add_task;
 pub use processor::{

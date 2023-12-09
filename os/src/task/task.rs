@@ -289,7 +289,6 @@ impl TaskControlBlock {
         let pid_handle = pid_alloc();
         let kernel_stack = kstack_alloc();
         let kernel_stack_top = kernel_stack.get_top();
-        let new_fd_table: Vec<Option<Arc<dyn File + Send + Sync>>> = Vec::new();
         let task_info = TaskInfo2 { start_time: 0usize, syscall_times: BTreeMap::new() };
         let task_control_block = Arc::new(TaskControlBlock {
             pid: pid_handle,
@@ -304,7 +303,14 @@ impl TaskControlBlock {
                     parent: Some(Arc::downgrade(self)),
                     children: Vec::new(),
                     exit_code: 0,
-                    fd_table: new_fd_table,
+                    fd_table: vec![
+                        // 0 -> stdin
+                        Some(Arc::new(Stdin)),
+                        // 1 -> stdout
+                        Some(Arc::new(Stdout)),
+                        // 2 -> stderr
+                        Some(Arc::new(Stdout)),
+                    ],
                     heap_bottom: user_sp,
                     program_brk: user_sp,
                     task_info,
