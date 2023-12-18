@@ -1,7 +1,12 @@
 //! File and filesystem-related syscalls
-use crate::fs::{open_file, OpenFlags, Stat, StatMode};
-use crate::mm::{translated_byte_buffer, translated_str, UserBuffer, PageTable};
+use crate::fs::OSInode;
+use crate::fs::{open_file, OpenFlags, Stat, StatMode, inode::ROOT_INODE, File};
+use crate::mm::{translated_byte_buffer, translated_str, UserBuffer, PageTable, PhysAddr, VirtAddr};
 use crate::task::{current_task, current_user_token};
+
+use alloc::sync::Arc;
+
+const PAGE_SIZE_BITS: usize = 12;
 
 pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
     trace!("kernel:pid[{}] sys_write", current_task().unwrap().pid.0);
@@ -19,7 +24,7 @@ pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
         // release current task TCB manually to avoid multi-borrow
         drop(inner);
         file.write(UserBuffer::new(translated_byte_buffer(token, buf, len))) as isize
-    } else {
+    } else {   
         -1
     }
 }
@@ -82,23 +87,85 @@ fn virt_addr_to_phys_addr(pt: &PageTable, vaddr: VirtAddr) -> PhysAddr{
     paddr
 }
 /// YOUR JOB: Implement fstat.
-pub fn sys_fstat(_fd: usize, _st: *mut Stat) -> isize {
+pub fn sys_fstat(fd: usize, st: *mut Stat) -> isize {
     trace!(
         "kernel:pid[{}] sys_fstat",
         current_task().unwrap().pid.0
     );
-    let tmp_token = current_task().unwrap().get_user_token();
-    let tmp_page_table = PageTable::from_token(tmp_token);
-    -1
+    let task = current_task().unwrap();
+    let token = task.get_user_token();
+    let page_table = PageTable::from_token(token);
+    //let tmp = current_task().unwrap();
+    let inner = task.inner_nomut_access();
+    if let Some(inode) = &inner.fd_table[fd] {
+            let mut mode: StatMode = StatMode::NULL;
+            
+            if inode.is_file() {
+                mode = StatMode::FILE;
+            }
+            
+            //assert!(mode == StatMode::FILE);
+
+            if inode.is_dir() {
+                mode = StatMode::DIR;
+            }
+
+            
+            let inode_id = inode.inode_id() as u64;
+            
+            let ref_cnt = inode.get_ref_cnt();
+            /*let stat: Stat = Stat{
+                dev: 0,
+                ino: inode.is_dir(),
+                mode,
+                nlink: inode.get_ref_cnt(),
+                pad: [0u64; 7],
+            };*/
+            
+
+            unsafe{
+                let dev_vaddr = VirtAddr::from(&((*st).dev) as *const u64 as usize);
+                let ino_vaddr = VirtAddr::from(&((*st).ino) as *const u64 as usize);
+                let mode_vaddr = VirtAddr::from(&((*st).mode) as *const StatMode as usize);
+                let nlink_vaddr = VirtAddr::from(&((*st).nlink) as *const u32 as usize);
+                
+                let dev_paddr = virt_addr_to_phys_addr(&page_table, dev_vaddr).0 as *mut u64;
+                let ino_paddr = virt_addr_to_phys_addr(&page_table, ino_vaddr).0 as *mut u64;
+                let mode_paddr = virt_addr_to_phys_addr(&page_table, mode_vaddr).0 as *mut StatMode;
+                let nlink_paddr = virt_addr_to_phys_addr(&page_table, nlink_vaddr).0 as *mut u32;
+                
+                *dev_paddr = 0u64;
+                *ino_paddr = inode_id;
+                *mode_paddr = mode;
+                *nlink_paddr = ref_cnt;
+            }
+        return 0;
+    }
+    else{
+        trace!("fail");
+        return -1;
+    } 
+    return 0;
 }
 
 /// YOUR JOB: Implement linkat.
-pub fn sys_linkat(_old_name: *const u8, _new_name: *const u8) -> isize {
+pub fn sys_linkat(old_name: *const u8, new_name: *const u8) -> isize {
     trace!(
-        "kernel:pid[{}] sys_linkat NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_linkat",
         current_task().unwrap().pid.0
     );
-    -1
+    let token = current_task().unwrap().get_user_token();
+    let old_name_str = translated_str(token, old_name);
+    let new_name_str = translated_str(token, new_name);
+    if old_name_str == new_name_str{
+        return -1;
+    }
+    // let new_inode = ROOT_INODE.find(new_name_str.as_str());
+    let old_inode = ROOT_INODE.find(old_name_str.as_str()).unwrap();
+    
+    ROOT_INODE.create_link(new_name_str.as_str(), &old_inode,old_name_str.as_str());
+
+    0
 }
 
 /// YOUR JOB: Implement unlinkat.

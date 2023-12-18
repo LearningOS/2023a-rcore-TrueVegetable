@@ -1,13 +1,13 @@
 //! File trait & inode(dir, file, pipe, stdin, stdout)
 
-mod inode;
+pub mod inode;
 mod stdio;
 
 use crate::mm::UserBuffer;
 
 /// trait File for all file types
 pub trait File: Send + Sync {
-    /// the file readable?
+    /// the file rea            dable?
     fn readable(&self) -> bool;
     /// the file writable?
     fn writable(&self) -> bool;
@@ -15,6 +15,10 @@ pub trait File: Send + Sync {
     fn read(&self, buf: UserBuffer) -> usize;
     /// write to the file from buf, return the number of bytes written
     fn write(&self, buf: UserBuffer) -> usize;
+    fn inode_id(&self) -> usize;
+    fn is_file(&self) -> bool;
+    fn is_dir(&self) -> bool;
+    fn get_ref_cnt(&self) -> u32;
 }
 
 /// The stat of a inode
@@ -30,7 +34,7 @@ pub struct Stat {
     /// number of hard links
     pub nlink: u32,
     /// unused pad
-    pad: [u64; 7],
+    pub pad: [u64; 7],
 }
 
 bitflags! {

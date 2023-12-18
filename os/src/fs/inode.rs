@@ -7,7 +7,7 @@
 use super::File;
 use crate::drivers::BLOCK_DEVICE;
 use crate::mm::UserBuffer;
-use crate::sync::UPSafeCell;
+use crate::sync::{UPSafeCell, UUPSafeCell};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use bitflags::*;
@@ -20,12 +20,12 @@ use lazy_static::*;
 pub struct OSInode {
     readable: bool,
     writable: bool,
-    inner: UPSafeCell<OSInodeInner>,
+    pub inner: UUPSafeCell<OSInodeInner>,
 }
 /// The OS inode inner in 'UPSafeCell'
 pub struct OSInodeInner {
-    offset: usize,
-    inode: Arc<Inode>,
+    pub offset: usize,
+    pub inode: Arc<Inode>,
 }
 
 impl OSInode {
@@ -34,7 +34,7 @@ impl OSInode {
         Self {
             readable,
             writable,
-            inner: unsafe { UPSafeCell::new(OSInodeInner { offset: 0, inode }) },
+            inner: unsafe { UUPSafeCell::new(OSInodeInner { offset: 0, inode }) },
         }
     }
     /// read all data from the inode
@@ -52,6 +52,9 @@ impl OSInode {
         }
         v
     }
+    /*pub fn inner_exclusive_access(&self) -> RefMut<'_, OSInodeInner>{
+        self.inner.exclusive_access()
+    }*/
 }
 
 lazy_static! {
@@ -123,7 +126,6 @@ pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
         })
     }
 }
-
 impl File for OSInode {
     fn readable(&self) -> bool {
         self.readable
@@ -154,5 +156,17 @@ impl File for OSInode {
             total_write_size += write_size;
         }
         total_write_size
+    }
+    fn inode_id(&self) -> usize{
+        self.inner.nomut_access().inode.block_id()
+    }
+    fn is_file(&self) -> bool {
+        self.inner.nomut_access().inode.is_file()
+    }
+    fn is_dir(&self) -> bool {
+        self.inner.nomut_access().inode.is_dir()
+    }
+    fn get_ref_cnt(&self) -> u32 {
+        self.inner.nomut_access().inode.get_ref_cnt()
     }
 }

@@ -9,7 +9,7 @@ use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
 use alloc::vec;
 use alloc::vec::Vec;
-use core::cell::RefMut;
+use core::cell::{Ref, RefMut};
 
 use alloc::collections::BTreeMap;
 
@@ -55,6 +55,9 @@ impl TaskControlBlock {
     /// Get the mutable reference of the inner TCB
     pub fn inner_exclusive_access(&self) -> RefMut<'_, TaskControlBlockInner> {
         self.inner.exclusive_access()
+    }
+    pub fn inner_nomut_access(&self) -> Ref<'_, TaskControlBlockInner> {
+        self.inner.nomut_access()
     }
     /// Get the address of app's page table
     pub fn get_user_token(&self) -> usize {
