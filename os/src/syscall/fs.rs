@@ -133,7 +133,7 @@ pub fn sys_fstat(fd: usize, st: *mut Stat) -> isize {
                 let ino_paddr = virt_addr_to_phys_addr(&page_table, ino_vaddr).0 as *mut u64;
                 let mode_paddr = virt_addr_to_phys_addr(&page_table, mode_vaddr).0 as *mut StatMode;
                 let nlink_paddr = virt_addr_to_phys_addr(&page_table, nlink_vaddr).0 as *mut u32;
-                
+
                 *dev_paddr = 0u64;
                 *ino_paddr = inode_id;
                 *mode_paddr = mode;
@@ -142,7 +142,6 @@ pub fn sys_fstat(fd: usize, st: *mut Stat) -> isize {
         return 0;
     }
     else{
-        trace!("fail");
         return -1;
     } 
     return 0;
@@ -162,17 +161,27 @@ pub fn sys_linkat(old_name: *const u8, new_name: *const u8) -> isize {
     }
     // let new_inode = ROOT_INODE.find(new_name_str.as_str());
     let old_inode = ROOT_INODE.find(old_name_str.as_str()).unwrap();
-    
     ROOT_INODE.create_link(new_name_str.as_str(), &old_inode,old_name_str.as_str());
 
     0
 }
 
 /// YOUR JOB: Implement unlinkat.
-pub fn sys_unlinkat(_name: *const u8) -> isize {
+pub fn sys_unlinkat(name: *const u8) -> isize {
     trace!(
-        "kernel:pid[{}] sys_unlinkat NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_unlinkat",
         current_task().unwrap().pid.0
     );
-    -1
+    let token = current_task().unwrap().get_user_token();
+    let name_str = translated_str(token, name);
+    // let new_inode = ROOT_INODE.find(new_name_str.as_str());
+    let old_inode_opt = ROOT_INODE.find(name_str.as_str());
+    if let Some(old_inode) = old_inode_opt{
+        ROOT_INODE.unlink(&old_inode,name_str.as_str());
+        0
+    }
+    else{
+        -1
+    }
+    
 }
