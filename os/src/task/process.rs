@@ -49,6 +49,8 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+    /// deadlock detect switch
+    pub deadlock_detect: bool,
 }
 
 impl ProcessControlBlockInner {
@@ -119,6 +121,7 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detect: false,
                 })
             },
         });
@@ -127,6 +130,8 @@ impl ProcessControlBlock {
             Arc::clone(&process),
             ustack_base,
             true,
+            0,
+            0,
         ));
         // prepare trap_cx of main thread
         let task_inner = task.inner_exclusive_access();
@@ -245,6 +250,7 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detect: parent.deadlock_detect,
                 })
             },
         });
@@ -263,6 +269,8 @@ impl ProcessControlBlock {
             // here we do not allocate trap_cx or ustack again
             // but mention that we allocate a new kstack here
             false,
+            0,
+            0,
         ));
         // attach task to child process
         let mut child_inner = child.inner_exclusive_access();

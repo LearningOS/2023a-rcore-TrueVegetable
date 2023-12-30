@@ -6,8 +6,11 @@ use crate::{
         current_process, current_task, current_user_token, exit_current_and_run_next, pid2process,
         suspend_current_and_run_next, SignalFlags, TaskStatus,
     },
+    timer::get_time_us, mm::{PhysAddr, VirtAddr, VirtPageNum}, mm::PageTable
 };
 use alloc::{string::String, sync::Arc, vec::Vec};
+
+use crate::config::{PAGE_SIZE, PAGE_SIZE_BITS};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -162,12 +165,39 @@ pub fn sys_kill(pid: usize, signal: u32) -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+/// 
+fn virt_addr_to_phys_addr(pt: &PageTable, vaddr: VirtAddr) -> PhysAddr{
+    let vpn = vaddr.floor();
+    let pte = pt.find_pte(vpn).unwrap();
+    let ppn = pte.ppn();
+    let paddr = PhysAddr::from(((usize::from(ppn)) << PAGE_SIZE_BITS) + vaddr.page_offset());
+    paddr
+}
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_get_time",
         current_task().unwrap().process.upgrade().unwrap().getpid()
     );
-    -1
+    let time = get_time_us();
+    assert!(time != 0);
+    let ret: TimeVal = TimeVal { sec: time/1000000, usec: time%1000000 };
+    let cur_page_table = PageTable::from_token(current_user_token());
+    unsafe{
+        //println!("time ptr {}", ts as usize);
+        let sec_vaddr = VirtAddr::from(&((*ts).sec)as *const usize as usize);
+        let usec_vaddr =  VirtAddr::from((&(*ts).usec)as *const usize as usize);
+        
+        //println!("sec ptr {}", usize::from(sec_vaddr));
+        //println!("usec ptr {}", usize::from(usec_vaddr));
+        let sec_paddr = virt_addr_to_phys_addr(&cur_page_table, sec_vaddr).0 as *mut usize;
+        let usec_paddr = virt_addr_to_phys_addr(&cur_page_table, usec_vaddr).0 as *mut usize;
+        
+        //println!("sec paddr {}", sec_paddr as usize);
+        //println!("usec paddr {}", usec_paddr as usize);
+        *sec_paddr = ret.sec;
+        *usec_paddr = ret.usec;
+    }
+    0
 }
 
 /// task_info syscall

@@ -6,6 +6,8 @@ use crate::trap::TrapContext;
 use crate::{mm::PhysPageNum, sync::UPSafeCell};
 use alloc::sync::{Arc, Weak};
 use core::cell::RefMut;
+use alloc::vec::Vec;
+use alloc::vec;
 
 /// Task control block structure
 pub struct TaskControlBlock {
@@ -41,6 +43,12 @@ pub struct TaskControlBlockInner {
     pub task_status: TaskStatus,
     /// It is set when active exit or execution error occurs
     pub exit_code: Option<i32>,
+    /// alloc array
+    pub mutex_alloc: Vec<usize>,
+    pub semaphore_alloc: Vec<usize>,
+    /// need array
+    pub mutex_need: Vec<usize>,
+    pub semaphore_need: Vec<usize>,
 }
 
 impl TaskControlBlockInner {
@@ -60,6 +68,8 @@ impl TaskControlBlock {
         process: Arc<ProcessControlBlock>,
         ustack_base: usize,
         alloc_user_res: bool,
+        mutex_cnt: usize,
+        semaphore_cnt: usize,
     ) -> Self {
         let res = TaskUserRes::new(Arc::clone(&process), ustack_base, alloc_user_res);
         let trap_cx_ppn = res.trap_cx_ppn();
@@ -75,9 +85,33 @@ impl TaskControlBlock {
                     task_cx: TaskContext::goto_trap_return(kstack_top),
                     task_status: TaskStatus::Ready,
                     exit_code: None,
+                    mutex_alloc: vec![0; mutex_cnt],
+                    semaphore_alloc: vec![0; semaphore_cnt],
+                    mutex_need: vec![0; mutex_cnt],
+                    semaphore_need: vec![0; semaphore_cnt]
                 })
             },
         }
+    }
+    pub fn add_mutex(&self){
+        let mut inner = self.inner_exclusive_access();
+        inner.mutex_alloc.push(0);
+        inner.mutex_need.push(0);
+    }
+    pub fn add_semaphore(&self){
+        let mut inner = self.inner_exclusive_access();
+        inner.semaphore_alloc.push(0);
+        inner.semaphore_need.push(0);
+    }
+    pub fn reset_mutex(&self, id:usize){
+        let mut inner = self.inner_exclusive_access();
+        inner.mutex_alloc[id] = 0;
+        inner.mutex_need[id] = 0;
+    }
+    pub fn reset_semaphore(&self, id:usize){
+        let mut inner = self.inner_exclusive_access();
+        inner.semaphore_alloc[id] = 0;
+        inner.semaphore_need[id] = 0;
     }
 }
 

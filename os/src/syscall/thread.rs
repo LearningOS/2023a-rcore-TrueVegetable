@@ -19,6 +19,11 @@ pub fn sys_thread_create(entry: usize, arg: usize) -> isize {
     );
     let task = current_task().unwrap();
     let process = task.process.upgrade().unwrap();
+    
+    let mut process_inner = process.inner_exclusive_access();
+    let mutex_cnt = process_inner.mutex_list.len();
+    let semaphore_cnt = process_inner.semaphore_list.len();
+    drop(process_inner);
     // create a new thread
     let new_task = Arc::new(TaskControlBlock::new(
         Arc::clone(&process),
@@ -28,6 +33,8 @@ pub fn sys_thread_create(entry: usize, arg: usize) -> isize {
             .unwrap()
             .ustack_base,
         true,
+        mutex_cnt,
+        semaphore_cnt,
     ));
     // add new task to scheduler
     add_task(Arc::clone(&new_task));
