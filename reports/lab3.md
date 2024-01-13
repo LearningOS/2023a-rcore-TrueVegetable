@@ -5,7 +5,7 @@
 ## 问答题
 
 1. 不是。由于p2.stride为u8类型，p2.stride + pass = 260 > 255，产生溢出，p2.stride变为4，导致下一次调度时stride较小的进程为p2。
-2. 由于优先级全部>=2，因此每次调度的pass最多为BigStride / 2。每次调度时选取的是stride最小的进程，因此增加pass后也满足STRIDE_MAX – STRIDE_MIN <= BigStride / 2。
+2. 初始时stride为0，显然STRIDE_MAX – STRIDE_MIN <= BigStride / 2。假设某个时刻满足STRIDE_MAX – STRIDE_MIN <= BigStride / 2，进行调度，由于优先级全部>=2，因此每次调度的pass最多为BigStride / 2。每次调度时选取的是stride最小的进程，因此增加pass后也满足STRIDE_MAX – STRIDE_MIN <= BigStride / 2。
 
 ```rust
 use core::cmp::Ordering;
